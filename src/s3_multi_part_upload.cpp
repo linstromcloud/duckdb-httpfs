@@ -113,11 +113,16 @@ void S3MultiPartUpload::FinalizeMultipartUpload() {
 }
 
 void S3MultiPartUpload::UploadBuffer(shared_ptr<S3MultiPartUpload> multi_part_upload,
-                                     shared_ptr<S3WriteBuffer> write_buffer) {
-	string query_param = "partNumber=" + to_string(write_buffer->part_no + 1) + "&" +
-	                     "uploadId=" + S3FileSystem::UrlEncode(multi_part_upload->multipart_upload_id, true);
+                                     shared_ptr<S3WriteBuffer> write_buffer, ResourceScopeReference scope_reference) {
+	{
+		// The part's bytes and this thread's CPU are added to the totals of the connection and database that flushed
+		// the part. The scope closes before the flushing side is notified, so that it has added its counts by then.
+		ResourceScopeGuard scope_guard(scope_reference);
+		string query_param = "partNumber=" + to_string(write_buffer->part_no + 1) + "&" +
+		                     "uploadId=" + S3FileSystem::UrlEncode(multi_part_upload->multipart_upload_id, true);
 
-	multi_part_upload->UploadBufferImplementation(write_buffer, query_param, false);
+		multi_part_upload->UploadBufferImplementation(write_buffer, query_param, false);
+	}
 	multi_part_upload->NotifyUploadsInProgress();
 }
 
@@ -222,12 +227,15 @@ void S3MultiPartUpload::FlushBuffer(shared_ptr<S3WriteBuffer> write_buffer) {
 		multipart_upload_id = InitializeMultipartUpload();
 	}
 
+	// The upload thread holds no resource scope: hand it the totals this thread's innermost scope names
+	auto scope_reference = ResourceScopeReference::Current();
+
 #ifdef SAME_THREAD_UPLOAD
-	UploadBuffer(shared_from_this(), write_buffer);
+	UploadBuffer(shared_from_this(), write_buffer, scope_reference);
 	return;
 #endif
 
-	std::thread upload_thread(S3MultiPartUpload::UploadBuffer, shared_from_this(), write_buffer);
+	std::thread upload_thread(S3MultiPartUpload::UploadBuffer, shared_from_this(), write_buffer, scope_reference);
 	upload_thread.detach();
 }
 

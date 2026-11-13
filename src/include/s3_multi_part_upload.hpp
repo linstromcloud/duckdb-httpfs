@@ -2,6 +2,7 @@
 
 #include "s3fs.hpp"
 #include "duckdb/execution/task_error_manager.hpp"
+#include "duckdb/main/resource_scope.hpp"
 
 namespace duckdb {
 
@@ -36,7 +37,10 @@ public:
 public:
 	// Uploads the contents of write_buffer to S3.
 	// Note: caller is responsible to not call this method twice on the same buffer
-	static void UploadBuffer(shared_ptr<S3MultiPartUpload> multi_part_upload, shared_ptr<S3WriteBuffer> write_buffer);
+	//! Uploads one part. "scope_reference" names the totals of the thread that flushed the part: the upload runs on a
+	//! thread of its own, which holds no resource scope
+	static void UploadBuffer(shared_ptr<S3MultiPartUpload> multi_part_upload, shared_ptr<S3WriteBuffer> write_buffer,
+	                         ResourceScopeReference scope_reference);
 	void UploadSingleBuffer(shared_ptr<S3WriteBuffer> write_buffer);
 	void UploadBufferImplementation(shared_ptr<S3WriteBuffer> write_buffer, string query_param, bool direct_throw);
 	void NotifyUploadsInProgress();
